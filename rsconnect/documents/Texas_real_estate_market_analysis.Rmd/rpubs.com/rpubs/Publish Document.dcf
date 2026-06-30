@@ -1,0 +1,10 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/1414558/eb53870ccc244df18de437824147aa2c
+bundleId: https://api.rpubs.com/api/v1/document/1414558/eb53870ccc244df18de437824147aa2c
+url: http://rpubs.com/PieroD/1414558
+version: 1

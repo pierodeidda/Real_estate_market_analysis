@@ -1,0 +1,1287 @@
+---
+title: "Texas Real Estate Market Analysis"
+output: html_notebook
+---
+
+<!-- This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.  -->
+
+<!-- Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.  -->
+
+
+<!-- Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*. -->
+
+<!-- When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file). -->
+
+<!-- The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed. -->
+
+```{r, echo=FALSE}
+library(dplyr)
+library(moments)
+library(ggplot2)
+library(patchwork)
+library(scales)
+library(ggpubr)
+library(DT)
+options(width = 100)
+```
+
+
+```{r, echo=FALSE}
+# IMPORT THE DATASET
+dataset <- read.csv("realestate_texas.csv")
+
+dataset$month <- factor(dataset$month)
+dataset$year <- factor(dataset$year)
+
+attach(dataset)
+```
+
+
+## **<span style="color:red"> [1] </span> Analysis of the variables**
+
+
+The database is composed of 240 observations each of 8 statistical variables relative to the real estate sales in different periods (month/year) and cities of Texas. The statistical variables are:  
+- *city*: nominal qualitative variable that classifies the city to which each observation refers.  
+
+- *year*: quantitative continue variable to treat as ordinal qualitative variable that classifies the year to which each observation refers.  
+
+- *month*: ordinal qualitative variable (coded in numbers) that classifies the month to which the observation refers.  
+
+- *sales*: a discrete quantitative variable that describes the total number of sales recorded in the city during the month of the year.  
+
+- *volume*: a continuous quantitative variable describing the value of sales in millions of US dollars.  
+
+- *median_price*: a continuous quantitative variable describing the median sales price of a property in US dollars in the city during the month of the year.  
+
+- *listings*: a discrete quantitative variable describing the total number of properties for sale in the city at the month of the year.  
+
+- *month_inventory*: a continuous quantitative variable that describes the time (in months) needed to sell all the properties available in the city at that moment (month/year).
+
+We will analyze the quantitative variables such as sales, volume and median_price over time to identify generic or city-specific trends of the market, either monthly or annually.
+
+The variables listings and month_inventory will be also studied over time and cities to study the speed of property sales and efficiency of advertising policies.
+
+```{r}
+N_observations = dim(dataset)[1]
+N_variables = dim(dataset)[2]
+```
+
+## **<span style="color:red"> [2] </span> Study of the variables**
+
+### **(I) We study the absolute and relative frequency of the qualitative variables "city", "year" and "month"**
+
+
+
+```{r}
+# Here and in the following we use the package *DT* for the better rendering of the tables.
+
+Freq_ass_city = table(dataset["city"])
+Freq_rel_city = table(dataset["city"])/N_observations
+Freq_city = cbind(Freq_ass_city,Freq_rel_city)
+datatable(t(Freq_city), caption = 'Absolute and Relative frequency of the cities in the dataset')
+
+Freq_ass_year = table(dataset["year"])
+Freq_rel_year = table(dataset["year"])/N_observations
+Freq_year = cbind(Freq_ass_year, Freq_rel_year)
+datatable(t(Freq_year), caption = 'Absolute and Relative frequency of the years in the dataset')
+
+Freq_ass_month = table(dataset["month"])
+Freq_rel_month = round(table(dataset["month"])/N_observations,2)
+Freq_month = cbind(Freq_ass_month,Freq_rel_month)
+datatable(t(Freq_month), options = list(pageLength = 12), caption = 'Absolute and Relative frequency of the months in the dataset')
+```
+
+We observe that the variables "city", "year", and "month" are uniformly distributed, and thus they exhibit **multimodal** distributions.
+
+**<span style="color:red"> [5] </span>** In particular, the probability that a random line of the dataset corresponds to:  
+- the city of “Beaumont” is *P(“Beaumont”)=0.25*.  
+- the month of "July" is *P("July")~=0.08*.     
+- "December 2012" is *P("December 2012")= P("December") x P("2012") = 0.08 x 0.2 ~= 0.16.*  
+
+### **(II) Next, we study the quantitative variables:**  
+- **"sales",**   
+- **"volume",**  
+- **"median_price",**  
+- **"listings"**  
+- **"month_inventory" **  
+
+We summarize in a table a description of these variables via the main indices of shape, position and variability. We also compare graphically their normalized distribution against a normal distribution.
+
+
+```{r}
+cv_funct <- function(x) {
+  return(sd(x) / mean(x) * 100)
+}
+
+
+kurtosis_index <- function(x) {
+  return(kurtosis(x)-3)
+}
+
+
+sub_data <- dataset[c("sales","volume","median_price","listings","months_inventory")]
+
+statistics <- data.frame(
+        
+  quartile_1 = round(apply(sub_data, 2, function(x) quantile(x,probs=0.25, names=FALSE)),2),
+                          
+  median = round(apply(sub_data, 2, median),2),
+                            
+  quartile_3 = round(apply(sub_data, 2, function(x) quantile(x,probs=0.75, names=FALSE)),2),
+                          
+  mean = round(apply(sub_data, 2, mean),2),
+                          
+  sd = round(apply(sub_data, 2, sd),2),
+                          
+  cv = round(apply(sub_data, 2, cv_funct),2),
+                          
+  skewness = round(apply(sub_data, 2, skewness),2),
+                          
+  kurtosis = round(apply(sub_data, 2, kurtosis_index),2)
+)
+
+## FOR A BETTER VISUALIZATION OF THE TABLES WE USE THE PACKAGE "DT" (https://rstudio.github.io/DT/)
+
+datatable(statistics, caption="Indices of position, variability and form of the quantitative variables in the datset")
+```
+
+```{r}
+
+# the function normalize takes in input a variable in string form and returns its values normalized by its mean and standard deviation
+normalize <- function(variable){
+  return ((dataset[[variable]]-statistics[variable, "mean"])/statistics[variable, "sd"])
+}
+
+# we generate a standard normal distribution
+gaussian_distribution <- rnorm(100000,0,1)
+
+
+# we plot the density of the different variables against a standard normal distribution
+ggplot()+
+  geom_density(aes(x=gaussian_distribution, fill="N01"), color=NA,  alpha=.8)+
+  geom_density(aes(x=normalize("sales"), color="sales"), linewidth=1.5)+
+  geom_density(aes(x=normalize("volume"), color="volume"), linewidth=1.5)+
+  geom_density(aes(x=normalize("median_price"), color= "median_price"), linewidth=1.5)+
+  geom_density(aes(x=normalize("listings"), color="listings"), linewidth=1.5)+
+  geom_density(aes(x=normalize("months_inventory"), color="months_inventory"), linewidth=1.5)+
+  labs(title="Distribution of the variables",
+       x="Normalized variable ",
+       y="density")+
+  scale_fill_manual(values = c(N01 = "grey"),   
+                    labels = c(N01 = "N(0,1)")) +
+  theme_classic()+
+  theme(plot.title.position = "panel",
+        plot.title=element_text(hjust=0.5))+
+  guides(fill = guide_legend(override.aes = list(color = NA)))+
+  labs(color = "Variabile",
+      fill = "Distribuzione normale")
+```
+
+
+
+
+
+**<span style="color:red"> [3] </span>** From the previous analysis we can observe that the variables "volume" and "median_price" are the ones with the highest and smallest variability having the largest and smallest coefficient of variation, respectively. Similarly "volume" is also the most asymmetric variable having the highest absolute value of the Fisher skewness coefficient, differently the least asymmetric variable is "months_inventory".  
+
+The values of the Fisher skewness coefficients and kurtosis demonstrate that none of the variables follow an exact normal distribution, suggesting different distributions of the variables based on the different cities and/or periods. 
+
+However, as we can see from the plot and the values of skewness in the table, all the variable, except the median_price, are more densely concentrated close to the mean on the mean left and more sparsely distributed on the mean right.
+
+Finally by looking at the kurtosis, we observe that all the variables, except the volume, have tails decaying faster than the Gaussian distribution, so the probability of observing outliers far from the mean will be lower than the probability that we would have by considering a normal distribution with same mean and standard deviation.
+
+
+## **<span style="color:red"> [4] </span> Creation of classes for quantitative variables**
+### In this section we divide the variable median_price in classes to study how its distribution varies across the different cities.
+First we create the classes each corresponding to a range of 10000$, assign each data to the corresponding class and study the distribution frequency of each class.
+
+```{r}
+cat("min median_price:", min(dataset$median_price), "\n")
+cat("max median_price:", max(dataset$median_price))
+
+
+
+#given the minium and maximum median_price value we create classes of 10000$ each and assign each data to the corresponding class.
+
+breaking_points <- seq(70, 180, by=10)    
+breaking_points_labels <- paste0("[", breaking_points[-length(breaking_points)], "K, ", breaking_points[-1], "K)")
+
+dataset$median_price_CL <- cut(dataset$median_price, 
+                     breaks=seq(from = 70000, to = 180000, by = 10000))
+
+
+
+levels(dataset$median_price_CL) <- breaking_points_labels
+
+freq_ass_median_price <- table(dataset$median_price_CL)
+freq_rel_median_price <- round(freq_ass_median_price/N_observations,2)
+
+datatable(cbind(freq_ass_median_price, freq_rel_median_price))
+```
+Next, we compute the Gini heterogeneity index of the median_price class variable over the entire dataset and separately for each city. 
+
+```{r}
+gini.index <- function(x){
+  ni = table(x)
+  fi = ni/length(x)
+  fi2 = fi^2
+  J = length(table(x))
+  
+  gini = 1-sum(fi2)
+  gini.norm = gini/((J-1)/J)
+  
+  return(gini.norm)
+}
+
+
+cat(sprintf("The Gini heterogeneity index of the classes of median price over the entrie dataset is: %f \n", gini.index(dataset$median_price_CL)))
+
+for (cit in unique(dataset$city)){
+  city_dataset <- dataset %>%
+    filter(city==cit)
+
+  cat(sprintf("The Gini heterogeneity index of the classes of median price relative to the city of %s is: %f \n", cit, gini.index(city_dataset$median_price_CL)))
+  }
+
+```
+Last we visualize the frequency distribution via a barplot.  
+
+```{r}
+ggplot(data=dataset)+
+  geom_bar(aes(x=median_price_CL),
+           stat="count",
+           col="black",
+           fill="orange")+
+  labs(title="Distribution of the classes of median_price",
+       x="median price in classes",
+       y="absolute frequency")+
+  scale_y_continuous(breaks = seq(0,60,10))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 15, hjust = 1),
+        axis.title.x = element_text(size = 14, margin = margin(t = 10)),
+        axis.title.y = element_text(size = 14, margin = margin(r = 10)))
+```  
+
+
+Last we visualize the frequency distribution via a barplot across the different cities.  
+
+```{r}
+#for a better visualization of the frequency across the different cities we create a dataset where we count the frequency of each class for each city and we fill the dataset with observations having count=0 for each city and class of price that have no intersection   
+dataset_complete <- dataset %>%
+  count(median_price_CL, city)
+
+for (cit in unique(dataset$city)){
+  for (class in unique(dataset$median_price_CL)){
+    filtered <- dataset_complete %>%
+      filter(city == cit, median_price_CL == class)
+    if (nrow(filtered) == 0){
+      dataset_complete <- rbind(dataset_complete, data.frame(city=cit, median_price_CL=class, n=0))
+    }
+  }
+}
+```
+
+
+```{r}
+# next we visualize via a bar plot the distribution of classes of price across the different cities
+ggplot(data=dataset_complete)+
+  geom_col(aes(x=median_price_CL,
+               y=n,
+               fill=city),
+           position="dodge2",  #dodge, #fill, #stack
+           stat="identity",
+           col="black")+
+  labs(title="Distribuzione delle classi della mediana di prezzo",
+       x="median price in classes",
+       y="absolute frequency")+
+  scale_y_continuous(breaks = seq(0,60,10))+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 15, hjust = 1),
+        axis.title.x = element_text(size = 14, margin = margin(t = 10)),
+        axis.title.y = element_text(size = 14, margin = margin(r = 10)),
+        legend.position ="bottom")
+```
+The Gini heterogeneity index close to 1 and the bar plots of the distribution indicate that the dataset is distributed discreetly uniformly across the different median-price classes.  
+
+The distribution of the data relative to the different cities across the classes of price is significantly less uniform, as reflected both by lower values of the Gini index and the bar plot relative to the different cities.   
+
+Specifically, we observe that the prices in Wichita Falls are generally lower than those of Beaumont which are smaller than those of Tyler which are finally generally smaller than those of Bryan-College Station.
+
+We finally include a boxplot of the distribution of median_price across the different cities to quantify the variability of the median price for each city.
+```{r}
+ggplot(data=dataset,
+       aes(x=city,
+           y=median_price,
+           fill=city))+
+       geom_boxplot()+
+       geom_hline(yintercept = statistics["median_price","quartile_3"], color = "red")+
+       geom_hline(yintercept = statistics["median_price","quartile_1"], color = "red")+
+       geom_hline(yintercept = statistics["median_price","mean"], color = "red")+
+       labs(title="Comparison of median_price by city",
+            x="city",
+            y="US$")+
+       annotate("label", x = Inf, y = statistics["median_price","quartile_1"], 
+                label = "1°quartile median_price", 
+                hjust = 1.1, 
+                vjust = +.5, 
+                fill="grey", 
+                color = "red")+
+       annotate("label", x = Inf, y = statistics["median_price","median"],
+                label = "median median_price",
+                hjust = 1.1, vjust = +.5,
+                fill="grey",
+                color = "red")+
+       annotate("label", x = Inf, y = statistics["median_price","quartile_3"],
+                label = "3° quartile median_price",
+                hjust = 1.1,
+                vjust = +.5,
+                fill="grey",
+                color = "red")+
+       theme_classic()+
+       scale_x_discrete(expand = expansion(add = c(.5, 2)))+
+       scale_y_continuous(breaks = seq(70000, 180000, by=10000), 
+                          labels = paste0(breaking_points, "K"))+
+       theme(plot.title.position = "panel",
+             plot.title = element_text(size=16, hjust=0.5),
+             axis.title.x = element_text(size=14),
+             axis.title.y = element_text(size=14),
+             axis.text.x = element_text(size=10),
+             axis.text.y = element_text(size=10),
+             legend.position ="bottom")
+```
+We can observe that the median price in different cities exhibits similar variability, measured in terms of interquartile range, and significantly lower variability than that found by considering all the cities together. This is due to the fact that the median price range differs significantly from city to city.
+
+
+
+## **<span style="color:red"> [6] </span> Creation of new variables**
+### We create three new varibales measuring the mean selling price in US dollars, the effectiveness of the sales ads and the date measured in moths from January 2010.  
+- The variable *mean_price* is obtained as $10^6$(*volume*/*sales*).
+- The variable *effectiveness* is obtained as (*listings*/*months_inventory*) which measures the average monthly sales rate of the properties listed in a city in a given month/year.
+- The variable *date* which returns the date of each data in months from january 2010, this is obtained as $month+12(mod(year,2010))$.
+
+```{r}
+dataset$mean_price <- (volume/sales)*10^6
+
+dataset$effectiveness <- (listings/months_inventory)
+
+dataset$date <- (as.numeric(as.character(month)))+12*(as.numeric(as.character(year))%%(min(as.numeric(as.character(year)))))
+```
+
+
+Next we study the trend of the quantitative variables over time. 
+
+
+```{r, fig.width=14, fig.height=15}
+# We use the package *patchwork* in combination with *ggplot2* to provide a cumulative significant representation of all the quantitative variables in a single multi-panel figure
+# We also use the package *ggpubr* to extract the legend from a figure and print it as a unique legend for all the plots.
+
+
+# The function month_convert convert a number between 1 and 12 into a string indicating the corresponding month.
+month_convert <- function(x){
+  x_n=as.numeric(as.character(x))
+  months=c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+  return(months[x_n])
+}
+
+
+# The function breaking_points takes in input a vector of dates expressed months and convert in vector of dates expressed as month+year.
+# This will be used to produce the x-axis labels in the plots with the trend of the variables over time. 
+breaking_points <- function(x) {
+  return(paste(month_convert(dataset$month[x]), dataset$year[x], sep=" ") )
+}
+
+
+# We produce a first plot only to extract the legend.
+line_sales <- ggplot(data=dataset)+
+  geom_line(aes(x = date,
+                y = sales,
+                group = city,
+                color = city), 
+            size = 1.5)+
+    theme(legend.title = element_text(size = 18),
+          legend.text = element_text(size = 16))
+
+# We extract the legend
+legend_line <- as_ggplot(get_legend(line_sales))
+
+
+# We produce the plot with the trend of the sales over time.
+line_sales <- ggplot(data=dataset)+
+  geom_line(aes(x = date,
+                y = sales,
+                group = city,
+                color = city), 
+            size = 1.5)+
+  geom_point(aes(x = date,
+                y = sales,
+                group = city,
+                color = city), 
+             size = 3)+
+  labs(title="Comparison of sales by time for the different cities",
+       x="time",
+       y="sales")+
+   scale_x_continuous(breaks = (seq(1,60, by = 6)),
+                      labels = breaking_points)+
+  theme_classic()+
+  theme(plot.title.position = "panel",
+        plot.title = element_text(size=18, hjust=0.5),
+        axis.title.x = element_text(size=16),
+        axis.title.y = element_text(size=16),
+        axis.text.x = element_text(size=10),
+        axis.text.y = element_text(size=10),
+        legend.position = "none")
+
+
+# We produce the plot with the trend of the volume over time.
+line_volume <- ggplot(data=dataset)+
+  geom_line(aes(x = date,
+                y = volume,
+                group = city,
+                color = city), 
+            size = 1.5)+
+  geom_point(aes(x = date,
+                y = volume,
+                group = city,
+                color = city), 
+             size = 3)+
+  labs(title="Comparison of volume by time for the different cities",
+       x="time",
+       y="volume")+
+   scale_x_continuous(breaks = (seq(1,60, by = 6)),
+                      labels = breaking_points)+
+  theme_classic()+
+  theme(plot.title.position = "panel",
+        plot.title = element_text(size=18, hjust=0.5),
+        axis.title.x = element_text(size=16),
+        axis.title.y = element_text(size=16),
+        axis.text.x = element_text(size=10),
+        axis.text.y = element_text(size=10),
+        legend.position = "none")
+
+
+# We produce the plot with the trend of the median_price over time.
+line_price <- ggplot(data=dataset)+
+  geom_line(aes(x = date,
+                y = median_price,
+                group = city,
+                color = city), 
+            size = 1.5)+
+  geom_point(aes(x = date,
+                y = median_price,
+                group = city,
+                color = city), 
+             size = 3)+
+  labs(title="Comparison of median price by time for the different cities",
+       x="time",
+       y="median price")+
+   scale_x_continuous(breaks = (seq(1,60, by = 6)),
+                      labels = breaking_points)+
+  theme_classic()+
+  theme(plot.title.position = "panel",
+        plot.title = element_text(size=18, hjust=0.5),
+        axis.title.x = element_text(size=16),
+        axis.title.y = element_text(size=16),
+        axis.text.x = element_text(size=10),
+        axis.text.y = element_text(size=10),
+        legend.position = "none")
+
+
+
+# We produce the plot with the trend of the listings over time.
+line_listings <- ggplot(data=dataset)+
+  geom_line(aes(x = date,
+                y = listings,
+                group = city,
+                color = city), 
+            size = 1.5)+
+  geom_point(aes(x = date,
+                y = listings,
+                group = city,
+                color = city), 
+             size = 3)+
+  labs(title="Comparison of listings by time for the different cities",
+       x="time",
+       y="listings")+
+   scale_x_continuous(breaks = (seq(1,60, by = 6)),
+                      labels = breaking_points)+
+  theme_classic()+
+  theme(plot.title.position = "panel",
+        plot.title = element_text(size=18, hjust=0.5),
+        axis.title.x = element_text(size=16),
+        axis.title.y = element_text(size=16),
+        axis.text.x = element_text(size=10),
+        axis.text.y = element_text(size=10),
+        legend.position = "none")
+
+
+# We produce the plot with the trend of the months_inventory over time.
+line_inventory <- ggplot(data=dataset)+
+  geom_line(aes(x = date,
+                y = months_inventory,
+                group = city,
+                color = city), 
+            size = 1.5)+
+  geom_point(aes(x = date,
+                y = months_inventory,
+                group = city,
+                color = city), 
+             size = 3)+
+  labs(title="Comparison of months inventory by time for the different cities",
+       x="time",
+       y="months inventory")+
+   scale_x_continuous(breaks = (seq(1,60, by = 6)),
+                      labels = breaking_points)+
+  theme_classic()+
+  theme(plot.title.position = "panel",
+        plot.title = element_text(size=18, hjust=0.5),
+        axis.title.x = element_text(size=16),
+        axis.title.y = element_text(size=16),
+        axis.text.x = element_text(size=10),
+        axis.text.y = element_text(size=10),
+        legend.position = "none")
+
+
+# We combine all the above plots and the label in one figure.
+comb_lines_fig = line_sales + line_volume + line_price + line_listings + line_inventory + legend_line  + plot_layout(ncol=2, heights = c(5, 5, 5))
+print(comb_lines_fig)
+
+# We close all the plots created above.
+rm(line_sales, line_volume, line_price, line_listings, line_inventory, legend_line, comb_lines_fig)
+```
+
+From the last plots we observe:
+
+- A periodic trend in almost all the variables, with the exception of the median_price. In particular, higher sales, volume, listings and month inventory are observed in the summer rather than in the winter.
+The difference between summer and winter is well marked in the cities of Tyler and Bryan-College Station while almost imperceptible in the city of Wichita Falls.
+
+- It is also possible to observe that, in average, the listings and months inventory are decreasing over the year while sales, volume and median price are increasing. Also in this case, the city of Wichita Falls is the one where this phenomenon is less evident.
+
+We study deeper and quantify these phenomena, and other that can be observed in the plots, in the following of this report. 
+
+
+
+## **<span style="color:red"> [7] </span> Analysis of the variables based on cities, years and months**
+
+### First we provide a statistical analysis of the quantitative variables, computing their mean, standard deviation and variation coefficient, based on cities and year.
+We summarize the results in the tables below and represent the results graphically by bar plots and box plots.
+
+
+### The 1st table studies the statistics of the variables over the different cities
+
+```{r}
+# we use the package dplyr to conduct conditioned statistical analysis by city and year.
+
+conditional_dataset_city <-
+  dataset %>% 
+  group_by(city) %>%
+  summarise(mean_sales = round(mean(sales),2),
+            sd_sales = round(sd(sales),2),
+            cv_sales = round(cv_funct(sales), 2),
+  
+            mean_volume=round(mean(volume),2),
+            sd_volume=round(sd(volume),2),
+            cv_volume = round(cv_funct(volume), 2),
+            
+            mean_med_price=round(mean(median_price),2),
+            sd_med_price=round(sd(median_price),2),
+            cv_med_price = round(cv_funct(median_price), 2),
+            
+            mean_mean_price=round(mean(mean_price),2),
+            sd_mean_price=round(sd(mean_price),2),
+            cv_mean_price = round(cv_funct(mean_price), 2),
+            
+            mean_listings=round(mean(listings),2),
+            sd_listings=round(sd(listings),2),
+            cv_listings = round(cv_funct(listings), 2),
+  
+            mean_inventory=round(mean(months_inventory),2),
+            sd_inventory=round(sd(months_inventory),2),
+            cv_inventory = round(cv_funct(months_inventory), 2),
+            
+            mean_effectivness=round(mean(effectiveness),2),
+            sd_effectiveness=round(sd(effectiveness),2),
+            cv_effectiveness = round(cv_funct(effectiveness), 2),
+            )
+
+df_t <- as.data.frame(t(conditional_dataset_city[2:dim(conditional_dataset_city)[2]]))
+colnames(df_t) = conditional_dataset_city$city
+datatable(df_t, options = list(pageLength = 21), caption="Statistical analysis of the dataset based on city")
+```
+
+
+### The 2nd table studies the statistics of the variables over the different year
+```{r}
+conditional_dataset_year <- dataset %>% 
+  group_by(year) %>% 
+  summarise(mean_sales = round(mean(sales),2),
+            sd_sales = round(sd(sales),2),
+            cv_sales = round(cv_funct(sales), 2),
+  
+            mean_volume=round(mean(volume),2),
+            sd_volume=round(sd(volume),2),
+            cv_volume = round(cv_funct(volume), 2),
+            
+            mean_med_price=round(mean(median_price),2),
+            sd_med_price=round(sd(median_price),2),
+            cv_med_price = round(cv_funct(median_price), 2),
+            
+            mean_mean_price=round(mean(mean_price),2),
+            sd_mean_price=round(sd(mean_price),2),
+            cv_mean_price = round(cv_funct(mean_price), 2),
+            
+            mean_listings=round(mean(listings),2),
+            sd_listings=round(sd(listings),2),
+            cv_listings = round(cv_funct(listings), 2),
+  
+            mean_inventory=round(mean(months_inventory),2),
+            sd_inventory=round(sd(months_inventory),2),
+            cv_inventory = round(cv_funct(months_inventory), 2),
+            
+            mean_effectivness=round(mean(effectiveness),2),
+            sd_effectiveness=round(sd(effectiveness),2),
+            cv_effectiveness = round(cv_funct(effectiveness), 2),
+            )
+
+
+df_t <- as.data.frame(t(conditional_dataset_year[2:dim(conditional_dataset_year)[2]]))
+colnames(df_t) = conditional_dataset_year$year
+datatable(df_t, options = list(pageLength = 21), caption="Statistical analysis of the dataset based on year")
+```
+
+
+
+
+```{r}
+
+# We create a dataset where we conduct a statistical analysis conditioned both to city and year, so varying only the months, for each couple (city,year) we compute the total amount of sales volume and listings and the median months_inventory, median price and effectiveness varying the months
+
+conditional_dataset_city_year <- dataset %>% 
+  group_by(year, city) %>% 
+  summarise(sales = sum(sales),
+            volume = sum(volume),
+            listings = sum(listings),
+            median_months_inventory=median(months_inventory),
+            median_median_price=median(median_price),
+            median_effectiveness=median(effectiveness)
+            )
+```
+
+
+
+### The next plot visualizes the total sales and volume over the years and cities
+
+```{r, fig.width=13, fig.height=5}
+# We create barplots to visualize the total sales and volume over the years and cities
+
+# The next plot is created only to extrapolate the legend
+bar_sales_year <-  ggplot(data=conditional_dataset_city_year, 
+                        aes(x=year,
+                            y=sales,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position="stack")+
+                  theme(legend.title = element_text(size = 16),
+                        legend.text = element_text(size = 14))
+
+#extrapolate the legend
+legend_city <- as_ggplot(get_legend(bar_sales_year))
+
+##
+##
+##
+
+#barplot with the total sales over years and cities
+bar_sales_year <-  ggplot(data=conditional_dataset_city_year,
+                        aes(x=year,
+                            y=sales,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position= "dodge")+
+                  labs(title="Comparison of total sales by year over city",
+                       x="year",
+                       y="Number of sales")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=16, hjust=0.5),
+                        axis.title.x = element_text(size=14),
+                        axis.title.y = element_text(size=14),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(breaks = seq(0, 4000, by = 250))
+
+##
+##
+##
+
+#barplot with the total volume over years and cities
+bar_volume_year <- ggplot(data=conditional_dataset_city_year,
+                         aes(x=year,
+                             y=volume,
+                             fill=city))+
+                  geom_col(stat="identity",
+                           position="dodge")+
+                  labs(title="Comparison of total volume by year over city",
+                       x="year",
+                       y="US$")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=16, hjust=0.5),
+                        axis.title.x = element_text(size=14),
+                        axis.title.y = element_text(size=14),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(breaks = seq(0, 700, by = 50), 
+                                           labels = label_number(suffix = "M"))
+
+##
+##
+##
+
+#combine the two plots in one figure and display it.
+comb_fig_2 <- bar_sales_year + bar_volume_year + legend_city + plot_layout(ncol=3, widths = c(5, 5, 3), heights = c(5))
+print(comb_fig_2)
+```
+
+
+
+
+### The next plot visualizes how the sales and volume are distributed in percentage with respect to the cities over the years.
+```{r, fig.width=13, fig.height=5}
+# We create barplots to visualize how the sales and volume, over the years, are distributed in percentage across the cities
+
+#barplot with the percentage sales over cities, varying the years
+bar_sales_year_2 <-  ggplot(data=conditional_dataset_city_year,
+                        aes(x=year,
+                            y=sales,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position= "fill")+
+                  labs(title="Comparison of total sales by year over city",
+                       x="year",
+                       y="sales")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=16, hjust=0.5),
+                        axis.title.x = element_text(size=14),
+                        axis.title.y = element_text(size=14),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(labels = percent_format(),
+                                           breaks = seq(0, 1, by = 0.1)) 
+
+##
+##
+##
+
+#barplot with the percentage volume over cities, varying the years
+bar_volume_year_2 <- ggplot(data=conditional_dataset_city_year,
+                         aes(x=year,
+                             y=volume,
+                             fill=city))+
+                  geom_col(stat="identity",
+                           position="fill")+
+                  labs(title="Comparison of total volume by year over city",
+                       x="year",
+                       y="volume")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=16, hjust=0.5),
+                        axis.title.x = element_text(size=14),
+                        axis.title.y = element_text(size=14),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(labels = percent_format(),
+                                           breaks = seq(0, 1, by = 0.1)) 
+
+
+
+#combine the two plots in one figure and display it.
+comb_fig_2_5 <- bar_sales_year_2 + bar_volume_year_2 + legend_city + plot_layout(ncol=3, widths = c(5, 5, 3), heights = c(5))
+print(comb_fig_2_5)
+```
+
+
+
+
+
+### The next plot visualizes the evolution of listings and month inventory by years and cities
+```{r, fig.width=13, fig.height=5}
+# We study the evolution of listings and month inventory over the years and varying the cities. We study the listing by means of a barplot and month inventory by means of a box plot.
+
+
+
+# The next plot is created only to extrapolate the legend
+bar_listings_city <- ggplot(data=conditional_dataset_city_year, 
+                      aes(x=city,
+                          y=listings,
+                          fill=year))+
+                    geom_col(stat="identity",
+                             position= "dodge")+
+                    scale_fill_manual(values = c("2010" = "lightblue1",
+                                                 "2011" = "lightblue2",
+                                                 "2012" = "lightblue3",
+                                                 "2013" = "lightblue4",
+                                                 "2014" = "#374A59"
+                                                 ))
+
+legend_year <- as_ggplot(get_legend(bar_listings_city))
+
+
+#barplot with the total number of listings varying the years and cities
+bar_listings_city <- ggplot(data=conditional_dataset_city_year, 
+                      aes(x=city,
+                          y=listings,
+                          fill=year))+
+                    geom_col(stat="identity",
+                             position= "dodge")+
+                    labs(title="Comparison of total listings by city over year",
+                         x="city",
+                         y="listings")+
+                    theme_classic()+
+                    theme(plot.title.position = "panel",
+                          plot.title = element_text(size=16, hjust=0.5),
+                          axis.title.x = element_text(size=14),
+                          axis.title.y = element_text(size=14),
+                          axis.text.x = element_text(size=10),
+                          axis.text.y = element_text(size=10),
+                          legend.position = "none")+
+                          scale_fill_manual(values = c("2010" = "lightblue1",
+                                                 "2011" = "lightblue2",
+                                                 "2012" = "lightblue3",
+                                                 "2013" = "lightblue4",
+                                                 "2014" = "#374A59"
+                                                 ))+
+                          scale_y_continuous(breaks = seq(0, 35000, by = 2500),
+                                             labels = paste0(seq(0,350, by=25),"K"))
+
+##
+##
+##
+
+#boxplot to study the statistics of month_inventory varying the years and cities
+box_inventory_city <- ggplot(data=dataset,
+                            aes(x=city,
+                                y=months_inventory,
+                                fill=year))+
+                     geom_boxplot()+
+                     labs(title="Comparison of months inventory by city over year",
+                          x="city",
+                          y="months_inventory")+
+                     theme_classic()+
+                     theme(plot.title.position = "panel",
+                           plot.title = element_text(size=16, hjust=0.5),
+                           axis.title.x = element_text(size=14),
+                           axis.title.y = element_text(size=14),
+                           axis.text.x = element_text(size=10),
+                           axis.text.y = element_text(size=10),
+                           legend.position = "none")+
+                           scale_fill_manual(values = c("2010" = "lightblue1",
+                                                        "2011" = "lightblue2",
+                                                        "2012" = "lightblue3",
+                                                        "2013" = "lightblue4",
+                                                        "2014" = "#374A59"
+                                                        ))+
+                          scale_y_continuous(breaks = seq(4, 14, by = 2))
+
+
+
+#combine the two plots in one figure and display it.
+comb_fig_3 <- bar_listings_city + box_inventory_city + legend_year + plot_layout(ncol=3, widths = c(5, 5, 1), heights = c(5))
+print(comb_fig_3)
+```
+
+
+
+
+### The next plot visualizes the evolution of the selling median price and selling efficiency over the years and cities
+```{r, fig.width=13, fig.height=5}
+# We study the evolution of median prices and efficiency over the years and varying the cities by means of boxplots. 
+
+#boxplot representing the statistics of the selling median price varying the years and cities
+box_price_year <- ggplot()+
+                    geom_line(data = conditional_dataset_city_year,
+                              aes(x = year, y = median_median_price, group = city,
+                                  color = city),
+                              position = position_dodge(width = 0.75)) +
+                    geom_boxplot(data=dataset, 
+                                          aes(x=year,
+                                              y=median_price,
+                                              fill=city))+
+                    labs(title="Comparison of median price by year over city",
+                         x="year",
+                         y="median price US$")+
+                    theme_classic()+
+                    theme(plot.title.position = "panel",
+                          plot.title = element_text(size=16, hjust=0.5),
+                          axis.title.x = element_text(size=14),
+                          axis.title.y = element_text(size=14),
+                          axis.text.x = element_text(size=10),
+                          axis.text.y = element_text(size=10),
+                          legend.position = "none")+
+                          scale_y_continuous(breaks = seq(75000, 175000, by = 10000),
+                                             labels= paste0(seq(75, 175, by = 10),"K"))
+
+                         
+# boxplot representing the statistics of selling efficiency varying the years and cities
+
+box_effectiveness_year <- ggplot()+
+                    geom_line(data = conditional_dataset_city_year,
+                              aes(x = year, y = median_effectiveness, group = city, color = city),
+                              position = position_dodge(width = 0.75)) +
+                    geom_boxplot(data=dataset,
+                                          aes(x=year,
+                                              y=effectiveness,
+                                              fill=city))+
+                    labs(title="Comparison of effectiveness by year over city",
+                         x="year",
+                         y="effectiveness")+
+                    theme_classic()+
+                    theme(plot.title.position = "panel",
+                          plot.title = element_text(size=16, hjust=0.5),
+                          axis.title.x = element_text(size=14),
+                          axis.title.y = element_text(size=14),
+                          axis.text.x = element_text(size=10),
+                          axis.text.y = element_text(size=10),
+                          legend.position = "none")+
+                          scale_y_continuous(breaks = seq(0, 350, by = 25)) 
+
+  
+
+#combine the two plots in one figure and display it.
+comb_fig_4 <- box_price_year + box_effectiveness_year + legend_city + plot_layout(ncol=3, widths = c(5, 5, 3), heights = c(5))
+print(comb_fig_4)
+```
+
+
+```{r}
+#We close all the figures generated above
+rm(bar_sales_year, bar_volume_year, legend_city, bar_listings_city, box_inventory_city, legend_year, box_price_year, box_effectiveness_year, bar_sales_year_2, bar_volume_year_2, comb_fig_2, comb_fig_2_5, comb_fig_3, comb_fig_4)
+```
+
+
+
+From the results above we observe that: 
+
+- Tyler is the city with more sales and volume as also the city where the sales ads are more efficient followed by Brian-College Station, Beaumont and Wichita Falls in descending order.
+
+- The median price is higher in Brian-College Station followed by Tyler and Beaumont and finally by Wichita Falls.
+
+- Tyler is also city with the highest number of listings and months inventory followed by Beaumont, Bryan-College Station and Wichita Falls. 
+
+About the variability of the variables we observe that:  
+
+- The relative variability (measured in terms of the coefficient of variation) in the volume and sales in Tyler is between 1.5 and 3 times higher than the variability that we observe in the other cities.   
+
+- Bryan-College Station faces a variability in the listings and month inventory that is almost twice or more the variability in the other cities. 
+
+- Finally Wichita Falls is the city with the highest variability in the median and mean prices. However the variability in the median prices is quite small for all the cities. 
+
+**The graphs confirm a change in the trend of the variables and so of the real estate market after 2011. On the one hand, we observe an increase in the number of sales, volume, median price, and efficiency; on the other hand the number of listings and monthly inventory decreases. The only city that doesn't seem to follow these trends is Wichita Falls, where the situation doesn't seem to be changing over the years.** We do not observe significant differences in the variability of the variables over the year.
+
+
+
+### Next we conduct a statistical study about the variability and trends of the different variables over the months.
+
+
+```{r}
+# next we conduct a statistical analysis conditioned both to the months
+conditional_dataset_month <- 
+  dataset %>% 
+  group_by(month) %>%   
+   summarise(mean_sales = round(mean(sales),2),
+            sd_sales = round(sd(sales),2),
+            cv_sales = round(cv_funct(sales), 2),
+  
+            mean_volume=round(mean(volume),2),
+            sd_volume=round(sd(volume),2),
+            cv_volume = round(cv_funct(volume), 2),
+            
+            mean_med_price=round(mean(median_price),2),
+            sd_med_price=round(sd(median_price),2),
+            cv_med_price = round(cv_funct(median_price), 2),
+            
+            mean_mean_price=round(mean(mean_price),2),
+            sd_mean_price=round(sd(mean_price),2),
+            cv_mean_price = round(cv_funct(mean_price), 2),
+            
+            mean_listings=round(mean(listings),2),
+            sd_listings=round(sd(listings),2),
+            cv_listings = round(cv_funct(listings), 2),
+  
+            mean_inventory=round(mean(months_inventory),2),
+            sd_inventory=round(sd(months_inventory),2),
+            cv_inventory = round(cv_funct(months_inventory), 2),
+            
+            mean_effectivness=round(mean(effectiveness),2),
+            sd_effectiveness=round(sd(effectiveness),2),
+            cv_effectiveness = round(cv_funct(effectiveness), 2),
+            ) 
+
+
+
+
+df_t <- as.data.frame(t(conditional_dataset_month[2:dim(conditional_dataset_month)[2]]))
+colnames(df_t) <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+datatable(df_t, options = list(scrollX = TRUE, pageLength = 21), caption="Statistical analysis of the dataset based on month")
+```
+
+The table reflect a **periodic trend of all the variables along the year, having:**  
+
+- **More sales, volume and listings and higher month inventory during the summer with respect to the winter.**
+
+The variables effectiveness and median/mean price are the only ones that seem not to be affected by this periodic trend.
+
+### To capture these periodic trends we study the monthly variation (in percentage) of the variables with respect to their mean.
+
+```{r}
+# the function format_percentage writes in percentage format the values that we provide
+format_percentage <- function(values) {
+  percent_values <- round(values * 100, 2)
+  sign_values <- ifelse(percent_values > 0, paste0("+", percent_values), as.character(percent_values))
+  paste0(sign_values, "%")
+}
+
+
+
+# next a dates is created where we report the percentage variation of the variables over the months with respect to their mean
+conditional_dataset_month_percentages <- data.frame(sales = format_percentage((conditional_dataset_month$mean_sales-statistics["sales","mean"]) / statistics["sales","mean"]),
+                                                    volume = format_percentage((conditional_dataset_month$mean_volume-statistics["volume","mean"]) / statistics["volume","mean"]),
+                                                    median_price = format_percentage((conditional_dataset_month$mean_med_price-statistics["median_price","mean"])/ statistics["median_price","mean"]),
+                                                    listings = format_percentage((conditional_dataset_month$mean_listings-statistics["listings","mean"]) / statistics["listings","mean"]),
+                                                    month_inventory=format_percentage((conditional_dataset_month$mean_inventory-statistics["months_inventory","mean"])/statistics["months_inventory","mean"])
+                                                    )                                         
+
+rownames(conditional_dataset_month_percentages) <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+datatable(conditional_dataset_month_percentages, options = list(scrollX = TRUE, pageLength = 21), caption="Variation of the monthly mean of the variables compared to their mean value")
+```
+
+Last, we study the variability of the sales, volume and listings both over the months and across different cities. We present the results via bar plots. 
+
+```{r}
+# first we create a dataset where we conduct a statistical analysis conditioned both to city and month, so varying only the year
+# for each couple (city,month) we compute the total amount of sales volume and listings and the median months_inventory, median price and effectiveness varying the years
+conditional_dataset_city_month <- dataset %>%
+  group_by(month, city) %>%
+  summarise(sales = sum(sales),
+            volume = sum(volume),
+            listings = sum(listings),
+            median_months_inventory=median(months_inventory),
+            median_median_price=median(median_price),
+            median_effectiveness=median(effectiveness)
+            )
+# 
+# 
+# conditional_dataset_city_month$season <- sapply(conditional_dataset_city_month$month, season)
+```
+
+
+```{r, fig.width=10, fig.height=16}
+# We create barplots to visualize the periodic variations of sales, volume and listings over the months and cities
+
+# The next plot is created only to extrapolate the legend
+bar_sales_month =  ggplot(data=conditional_dataset_city_month,
+                        aes(x=month,
+                            y=sales,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position= "stack")+
+                  labs(title="Comparison of total sales by month over city",
+                       x="month",
+                       y="sales")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=14, hjust=0.5),
+                        axis.title.x = element_text(size=12),
+                        axis.title.y = element_text(size=12),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "bottom",
+                        legend.title = element_text(size = 12),
+                        legend.text = element_text(size = 12))
+
+legend_month <- as_ggplot(get_legend(bar_sales_month))
+
+
+# The next bar plot shows the total number of sales per month in every city
+bar_sales_month =  ggplot(data=conditional_dataset_city_month,
+                        aes(x=month,
+                            y=sales,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position= "stack")+
+                  labs(title="Comparison of total sales by month over city",
+                       x="month",
+                       y="sales")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=14, hjust=0.5),
+                        axis.title.x = element_text(size=12),
+                        axis.title.y = element_text(size=12),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(breaks = seq(0, 5000, by = 500))
+
+
+
+# The next bar plot shows the number of sales in percentage with respect to the different cities per month 
+bar_sales_month_2 =  ggplot(data=conditional_dataset_city_month,
+                        aes(x=month,
+                            y=sales,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position= "fill")+
+                  labs(title="Comparison of total sales by month over city",
+                       x="month",
+                       y="sales percentage")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=14, hjust=0.5),
+                        axis.title.x = element_text(size=12),
+                        axis.title.y = element_text(size=12),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(labels = percent_format(),
+                                           breaks = seq(0, 1, by = 0.1)) 
+
+
+# The next bar plot shows the volume per month in every city
+bar_volume_month =  ggplot(data=conditional_dataset_city_month,
+                        aes(x=month,
+                            y=volume,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position= "stack")+
+                  labs(title="Comparison of total volume by month over city",
+                       x="month",
+                       y="volume US$")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=14, hjust=0.5),
+                        axis.title.x = element_text(size=12),
+                        axis.title.y = element_text(size=12),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(breaks = seq(0, 800, by = 50),
+                                           labels = paste0(seq(0, 800, by = 50), "M"))
+  
+
+# The next bar plot shows the volume in percentage with respect to the different cities per month 
+bar_volume_month_2 =  ggplot(data=conditional_dataset_city_month,
+                        aes(x=month,
+                            y=volume,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position= "fill")+
+                  labs(title="Comparison of total volume by month over city",
+                       x="month",
+                       y="volume percentage")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=14, hjust=0.5),
+                        axis.title.x = element_text(size=12),
+                        axis.title.y = element_text(size=12),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(labels = percent_format(),
+                                           breaks = seq(0, 1, by = 0.1)) 
+
+# The next bar plot shows the total number of listings per month in every city
+bar_listings_month =  ggplot(data=conditional_dataset_city_month,
+                        aes(x=month,
+                            y=listings,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position= "stack")+
+                  labs(title="Comparison of total listings by month over city",
+                       x="month",
+                       y="listings")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=14, hjust=0.5),
+                        axis.title.x = element_text(size=12),
+                        axis.title.y = element_text(size=12),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(breaks = seq(0, 35000, by = 5000), 
+                                           labels = paste0(seq(0, 35, by = 5), "K"))
+
+
+# The next bar plot shows the number of listings in percentage with respect to the different cities per month 
+bar_listings_month_2 =  ggplot(data=conditional_dataset_city_month,
+                        aes(x=month,
+                            y=listings,
+                            fill=city))+
+                  geom_col(stat="identity",
+                           position= "fill")+
+                  labs(title="Comparison of total listings by month over city",
+                       x="month",
+                       y="listings percentage")+
+                  theme_classic()+
+                  theme(plot.title.position = "panel",
+                        plot.title = element_text(size=14, hjust=0.5),
+                        axis.title.x = element_text(size=12),
+                        axis.title.y = element_text(size=12),
+                        axis.text.x = element_text(size=10),
+                        axis.text.y = element_text(size=10),
+                        legend.position = "none")+
+                        scale_y_continuous(labels = percent_format(),
+                                           breaks = seq(0, 1, by = 0.1)) 
+
+
+# We combine the six plots above in 1 figure and display it
+comb_fig_5 <- bar_sales_month + bar_sales_month_2 + bar_volume_month + bar_volume_month_2 + bar_listings_month + bar_listings_month_2 +  legend_month + plot_spacer() + plot_layout(ncol=2, heights = c(5, 5, 5, .5))
+print(comb_fig_5)
+
+#We close all the figures and plots generated above
+rm(bar_sales_month, bar_sales_month_2, bar_volume_month, bar_volume_month_2, bar_listings_month, bar_listings_month_2,  legend_month, comb_fig_5)
+```
+
+The last studies highlight a trend in many variables over the months:  
+
+- We observe significantly higher sales and volumes in the spring and summer months (in average +20/+30% of the annual mean) with respect to the autumn and winter ones (-20/-30% of the annual mean).  
+
+- A similar trend is observed also for the number of listings and months inventory, however the gap over the year of these variables is significantly less pronounced ($\pm$ 5/10% of the annual mean).  
+
+This phenomenon is highly pronounced in the cities of Tyler and Bryan-College Station, mildly pronounced in Beaumont, and not noticeable in Wichita Falls.  
+
+The per-month variability of all the variables, measured in terms of the coefficient of variation, is comparable across months.
+
+Finally, we highlight that the sales, volume and listings of Wichita Falls represent about 10-15% of the total during all the year, the ones of Beaumont about 20-25% of the total and the ones in Bryan-College Station plus Tyler stably over 60% of the total.
+
+
+## **Conclusions:**
+All the variables are distributed not uniformly across the different cities, in particular we have observed that:  
+
+- The prices are generally highest in Bryan College Station followed in decreasing order by Tyler, Beaumont and Wichita Falls.  
+
+- The number of sales and volume follow a similar distribution and are highest in Tyler followed in decreasing order by Bryan College Station, Beaumont and Wichita Falls.   
+
+- The number of listings in Tyler is significantly higher (almost twice) than in all the other cities.   
+
+- The variability (measured in terms of the coefficient of variation) in the volume and sales in Tyler is between 1.5 and 3 times higher than the variability observed in the other cities. While the highest variability in the listings and month inventory is observed in Bryan-College Station where it is almost twice or more the variability in the other cities.  
+
+- All the cities except Wichita Falls are experiencing a same trend over the last years. The number of sales volume and prices are increasing while the number of listings and month inventory is decreasing. However the ads looks to be efficient as the efficiency i.e. quotient between months inventory and listings is increasing.  
+
+- These three cities also experience a trend over the months with more sales and volume during the spring and summer rather then during the autumn winter. Phenomenon that is particularly pronounced in Tyler and Bryan-College Station.   
+
+- Overall the three cities of Beaumont, Bryan-College Station and Tyler are increasingly 
+occupying a larger market share every year up to almost 90% of sales and volume in 2014.  
+
+- The three cities of Beaumont, Bryan-College Station and Tyler also experience seasonal variations in the market, which is more active during the spring and summer than during the autumn and winter. The seasonal difference is particularly pronounced in Bryan-College Station and Tyler, while it is less pronounced in Beaumont.
+
+- The city of Wichita Falls is the only one where there are no significant changes in sales, volume, listings, month recovery and prices over the years. Also during the seasons no significant changes variations are experiences.  
+
+
+It seems likely that the offer of real estate is decreasing in the three cities of Bryan-College Station, Tyler and Beaumont while the demand is likely increasing.
+This is driving up prices and business volume. In particular the ads seem to be efficient in these cities as the number of sales per month is increasing. Differently, the situation is Wichita Falls is static and the advertising policies have not produced any significant improvement to the business volume over the last years. In particular, in percentage terms, the Wichita Falls real estate market has been increasingly declining over the years. Therefore, I would recommend reviewing the advertising policy adopted in Wichita Falls, while maintaining the same policy in other cities.
+
+
+
